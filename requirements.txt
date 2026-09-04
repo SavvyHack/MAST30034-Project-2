@@ -39,6 +39,7 @@ pyspark==4.2.0
 python-dateutil==2.9.0.post0
 pyzmq==27.2.0
 requests==2.34.2
+scipy==1.18.1
 six==1.17.0
 stack-data==0.6.3
 tornado==6.5.8
