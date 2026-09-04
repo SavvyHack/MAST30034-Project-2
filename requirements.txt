@@ -22,7 +22,7 @@ nest-asyncio2==1.7.2
 numpy==2.5.2
 openpyxl==3.1.5
 packaging==26.3
-pandas==3.0.5
+pandas==2.2.3
 parso==0.8.7
 pexpect==4.9.0
 pillow==12.3.0
@@ -47,3 +47,6 @@ traitlets==5.16.1
 typing_extensions==4.16.0
 urllib3==2.7.0
 wcwidth==0.8.3
+geopandas==1.0.1
+folium==0.17.0
+shapely==2.0.6

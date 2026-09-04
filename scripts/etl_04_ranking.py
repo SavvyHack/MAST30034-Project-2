@@ -54,17 +54,24 @@ PILLAR_WEIGHTS = {
 
 # Within the risk pillar. Each component is a percentile where HIGHER MEANS
 # WORSE; the pillar is inverted at the end so that a high risk score is good.
+#
+# `expected_fraud_share` enters at 0.25 - the largest single share - because it
+# is the only component here backed by an external label rather than inferred
+# from the merchant's own trading pattern. The other four were reweighted down
+# proportionally to make room for it; their relative ordering is unchanged from
+# the pre-fraud version, so the two are directly comparable.
 RISK_WEIGHTS = {
-    "revenue_volatility": 0.30,      # is the revenue steady month to month?
-    "customer_hhi": 0.30,            # does it rest on a handful of customers?
-    "excluded_share": 0.20,          # how much of their volume failed our rules?
-    "inactivity": 0.20,              # do they trade most days or in bursts?
+    "expected_fraud_share": 0.25,    # labelled fraud exposure, probability-weighted
+    "revenue_volatility": 0.225,     # is the revenue steady month to month?
+    "customer_hhi": 0.225,           # does it rest on a handful of customers?
+    "excluded_share": 0.15,          # how much of their volume failed our rules?
+    "inactivity": 0.15,              # do they trade most days or in bursts?
 }
 
 # The forward projection applies the observed monthly trend as a single-year
 # uplift, clipped. Without a clip, a merchant whose revenue happened to double
 # across a short window projects to an absurd figure and takes the top of the
-# ranking on nine months of noise.
+# ranking on noise.
 GROWTH_CLIP = 0.30
 
 
@@ -76,6 +83,11 @@ def percentile(series: pd.Series) -> pd.Series:
     missing volatility figure has not demonstrated that it is volatile - it has
     demonstrated nothing - and scoring absence as failure would systematically
     push newer merchants down the list for the wrong reason.
+
+    This matters most for `expected_fraud_share`. Merchants who only started
+    trading after the fraud labels stop have no fraud figure at all, and the
+    honest treatment is to score them as neither clean nor dirty rather than
+    handing them a perfect fraud record they have not earned.
     """
     ranked = series.rank(pct=True, na_option="keep")
     return ranked.fillna(0.5)
@@ -88,7 +100,20 @@ def build_scores(features: pd.DataFrame) -> pd.DataFrame:
     # The headline number: what we expect this merchant to earn us over the
     # next twelve months, in dollars. This is the figure to put on a slide -
     # it is the only quantity here a non-technical stakeholder can price.
-    df["monthly_bnpl_revenue"] = df["total_bnpl_revenue"] / df["n_months"].clip(lower=1)
+    #
+    # The divisor is months OBSERVED (elapsed since their first transaction),
+    # not months traded. Using months traded meant a merchant with one
+    # transaction had a divisor of 1 and projected that single purchase to a
+    # full year, which produced $17,000 projections from single purchases.
+    #
+    # The floor is applied here rather than in stage 3 on purpose: stage 3
+    # records what we observed, stage 4 decides how much of it we are willing
+    # to extrapolate from. That keeps the exposure figure reusable and puts
+    # the judgement call in the file where the other judgement calls live.
+    df["monthly_bnpl_revenue"] = (
+        df["total_bnpl_revenue"]
+        / df["months_observed"].clip(lower=config.MIN_MONTHS_FOR_PROJECTION)
+    )
     growth_factor = 1 + df["revenue_growth_rate"].fillna(0).clip(-GROWTH_CLIP, GROWTH_CLIP)
     df["projected_annual_revenue"] = df["monthly_bnpl_revenue"] * 12 * growth_factor
 
@@ -143,6 +168,19 @@ def rank_cohorts(scored: pd.DataFrame) -> pd.DataFrame:
     demonstrated performance, so they are ranked in their own cohort and
     presented as a watchlist rather than as onboarding recommendations. This is
     the "new merchant with little information" case the project spec calls out.
+
+    Within the watchlist, ordering by raw `final_score` reproduces the same
+    mistake one level down: it hands the top spots to whoever happened to make
+    one large sale. The watchlist is therefore ordered by a SHRUNK score -
+    each merchant is credited with their own score in proportion to
+    n / (n + k), with the remainder pulled to the cohort median.
+
+    A merchant with 1 transaction keeps 1/31 of their own signal; one with 29
+    keeps 29/59. The effect is that thin evidence cannot buy a high rank, but
+    a merchant approaching the threshold is ranked on close to their own
+    merits. This is standard empirical-Bayes shrinkage and it is worth naming
+    as such in the presentation - it is the honest answer to "why is your
+    watchlist not just a list of flukes?"
     """
     scored = scored.copy()
     scored["cohort"] = np.where(
@@ -158,9 +196,16 @@ def rank_cohorts(scored: pd.DataFrame) -> pd.DataFrame:
         .groupby("segment")["final_score"]
         .rank(ascending=False, method="first")
     )
+
+    thin = scored["cohort"] == "insufficient_history"
+    k = config.WATCHLIST_SHRINKAGE_K
+    prior = scored.loc[thin, "final_score"].median()
+    weight = scored.loc[thin, "n_transactions"] / (scored.loc[thin, "n_transactions"] + k)
+    scored.loc[thin, "shrunk_score"] = (
+        weight * scored.loc[thin, "final_score"] + (1 - weight) * prior
+    )
     scored["watchlist_rank"] = (
-        scored[scored["cohort"] == "insufficient_history"]["final_score"]
-        .rank(ascending=False, method="first")
+        scored.loc[thin, "shrunk_score"].rank(ascending=False, method="first")
     )
 
     return scored.sort_values("final_score", ascending=False)
@@ -178,6 +223,7 @@ REPORT_COLUMNS = [
     "n_transactions",
     "n_customers",
     "mean_basket",
+    "expected_fraud_share",
     "value_score",
     "growth_score",
     "risk_score",
@@ -205,12 +251,18 @@ def main():
 
     watchlist = scored[scored["cohort"] == "insufficient_history"].nsmallest(
         20, "watchlist_rank"
-    )[["watchlist_rank"] + REPORT_COLUMNS[1:]]
+    )[["watchlist_rank", "shrunk_score"] + REPORT_COLUMNS[1:]]
     watchlist.to_csv(config.CURATED_DIR / "watchlist_merchants.csv", index=False)
 
     # --- Report -----------------------------------------------------------
     print(f"\n  established cohort:    {len(established)}")
     print(f"  insufficient history:  {len(scored) - len(established)}")
+
+    n_scored_fraud = int(scored["expected_fraud_share"].notna().sum())
+    print(f"  with a fraud figure:   {n_scored_fraud} "
+          f"({100 * n_scored_fraud / len(scored):.0f}% - the rest traded only "
+          f"outside the labelled window)")
+
     print(
         f"\n  Top 100 account for "
         f"${top_100['projected_annual_revenue'].sum():,.0f} of projected annual revenue, "

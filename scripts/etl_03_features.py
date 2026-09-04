@@ -5,10 +5,12 @@ This is the table the ranking system consumes. Every feature here was chosen
 because it maps onto a question the BNPL firm would actually ask about a
 prospective partner, and each is commented with that question.
 
-Only rows with `is_valid` are aggregated, with one deliberate exception:
+Only rows with `is_valid` are aggregated, with two deliberate exceptions:
 `n_transactions_excluded` counts what the business rules removed, so a merchant
 whose volume is mostly implausible transactions can be spotted rather than
-quietly ranked on a shrunken but clean-looking record.
+quietly ranked on a shrunken but clean-looking record; and the fraud
+aggregates are computed over the labelled window only, for the reason set out
+in etl_02_curated.attach_fraud.
 
 Run:  python scripts/etl_03_features.py
 """
@@ -25,7 +27,14 @@ import config
 from spark_session import create_spark
 
 
-def build_features(transactions):
+def build_features(transactions, window_end):
+    """
+    Aggregate to merchant level.
+
+    `window_end` is the last date in the dataset. It is passed in rather than
+    recomputed here because it is needed to annualise revenue correctly and
+    should be the same value everywhere it is used.
+    """
     valid = transactions.filter(F.col("is_valid"))
 
     # The ABS-derived columns only exist once external data has been
@@ -36,6 +45,7 @@ def build_features(transactions):
     if "median_income" in transactions.columns:
         # Spending power of the merchant's customer base.
         optional_aggs.append(F.avg("median_income").alias("mean_customer_income"))
+        optional_aggs.append(F.avg("population").alias("mean_customer_sa2_population"))
     else:
         print("  median_income not present - skipping demographic features.")
 
@@ -72,6 +82,40 @@ def build_features(transactions):
         .agg(
             F.count("*").alias("n_transactions_excluded"),
             F.sum("dollar_value").alias("dollars_excluded"),
+        )
+    )
+
+    # --- Fraud -------------------------------------------------------------
+    # "How much of this merchant's volume looks fraudulent, and how much money
+    #  would that cost us?"
+    #
+    # The denominator is the LABELLED window, not the whole history. A merchant
+    # who did most of their trading after 2022-02-27 has little or no labelled
+    # volume, and the correct answer for them is null - we do not know - rather
+    # than zero. The percentile() helper in stage 4 scores nulls at the median
+    # rather than as a clean record, so an unlabelled merchant is neither
+    # rewarded nor punished for the gap in our data.
+    labelled = transactions.filter(
+        F.col("is_valid") & F.col("in_fraud_label_window")
+    )
+    fraud = labelled.groupBy("merchant_abn").agg(
+        F.count("*").alias("n_transactions_labelled"),
+        F.sum("dollar_value").alias("dollars_labelled"),
+        F.sum(F.col("is_fraud").cast("int")).alias("n_flagged_fraud"),
+        F.sum("expected_fraud_value").alias("expected_fraud_dollars"),
+        F.max("fraud_probability").alias("max_fraud_probability"),
+    )
+    fraud = (
+        fraud.withColumn(
+            # Share of labelled transactions over the threshold.
+            "fraud_rate",
+            F.col("n_flagged_fraud") / F.nullif(F.col("n_transactions_labelled"), F.lit(0)),
+        ).withColumn(
+            # Probability-weighted share of labelled dollars at risk. This is
+            # the feature the risk pillar uses: it degrades smoothly instead of
+            # depending on where the threshold happens to sit.
+            "expected_fraud_share",
+            F.col("expected_fraud_dollars") / F.nullif(F.col("dollars_labelled"), F.lit(0)),
         )
     )
 
@@ -116,7 +160,7 @@ def build_features(transactions):
     monthly = monthly.withColumn("t", F.row_number().over(month_index))
 
     growth = monthly.groupBy("merchant_abn").agg(
-        F.count("*").alias("n_months"),
+        F.count("*").alias("n_months_active"),
         F.avg("monthly_revenue").alias("mean_monthly_revenue"),
         F.stddev("monthly_revenue").alias("std_monthly_revenue"),
         # Least-squares slope, computed from the aggregate sums rather than
@@ -143,10 +187,30 @@ def build_features(transactions):
 
     features = (
         base.join(excluded, "merchant_abn", "left")
+        .join(fraud, "merchant_abn", "left")
         .join(repeat, "merchant_abn", "left")
         .join(concentration, "merchant_abn", "left")
         .join(growth.drop("mean_monthly_revenue"), "merchant_abn", "left")
         .fillna({"n_transactions_excluded": 0, "dollars_excluded": 0.0})
+    )
+
+    # --- Exposure ----------------------------------------------------------
+    # `months_observed` is elapsed months from a merchant's first transaction
+    # to the end of the data window - NOT the number of months in which they
+    # happened to trade.
+    #
+    # This distinction is the difference between a sane projection and a
+    # nonsense one. Dividing by months *traded* means a merchant with a single
+    # transaction has a divisor of 1, so that one purchase is treated as a
+    # full month's revenue and multiplied by twelve. That produced $17,000
+    # annual revenue projections from single purchases in the previous version
+    # and put them at the top of the watchlist.
+    features = features.withColumn(
+        "months_observed",
+        F.greatest(
+            F.lit(1.0),
+            F.months_between(F.lit(window_end).cast("date"), F.col("first_transaction")),
+        ),
     )
 
     # --- Confidence flag ---------------------------------------------------
@@ -174,12 +238,23 @@ def main():
     spark.sparkContext.setLogLevel("ERROR")
 
     transactions = spark.read.parquet(str(config.CURATED_DIR / "transactions"))
-    features = build_features(transactions)
+
+    window_end = transactions.agg(F.max("order_datetime")).collect()[0][0]
+    print(f"  data window ends {window_end}")
+
+    features = build_features(transactions, window_end)
 
     output = config.CURATED_DIR / "merchant_features"
     features.write.mode("overwrite").parquet(str(output))
 
-    print(f"Stage 3 complete. {features.count()} merchants written to {output}")
+    # Read the count back off the written file rather than calling .count() on
+    # the un-cached `features` dataframe. Doing the latter re-executes the
+    # entire DAG - every join, both window functions, the per-customer
+    # aggregation - a second time after the write has already finished, which
+    # roughly doubled the runtime of this stage.
+    n_merchants = spark.read.parquet(str(output)).count()
+    print(f"Stage 3 complete. {n_merchants} merchants written to {output}")
+
     spark.stop()
 
 
