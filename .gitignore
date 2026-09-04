@@ -1,1 +1,20 @@
-.venv
+# Virtual environment
+.venv/
+
+# Downloaded/generated data
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Windows/WSL metadata
+*:Zone.Identifier
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
