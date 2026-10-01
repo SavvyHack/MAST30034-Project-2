@@ -1,0 +1,7 @@
+numpy==2.5.3
+pandas==3.0.6
+py4j==0.10.9.9
+pyarrow==25.0.1
+pyspark==4.2.0
+python-dateutil==2.9.0.post0
+six==1.17.0
