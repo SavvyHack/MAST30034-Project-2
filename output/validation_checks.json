@@ -1,0 +1,38 @@
+{
+  "checks": {
+    "all_master_merchants_ranked_once": true,
+    "consecutive_ranks": true,
+    "exactly_100_unique_recommendations": true,
+    "top100_matches_full_ranking": true,
+    "three_to_five_segments": true,
+    "ten_unique_merchants_per_segment": true,
+    "segment_selection_matches_ranking": true,
+    "score_formula": true,
+    "finite_scores": true,
+    "merchant_risk_in_range": true,
+    "top100_positive_contribution": true,
+    "top100_active": true,
+    "top100_passes_merchant_fraud_rule": true,
+    "feature_coverage": true,
+    "transaction_rows_preserved": true,
+    "transaction_risk_in_range": true,
+    "supplied_flags_preserved": true,
+    "threshold_flags_consistent": true
+  },
+  "transaction_checks": {
+    "rows": 13549875,
+    "invalid_probabilities": 0,
+    "wrong_delta_flags": 0,
+    "wrong_threshold_flags": 0
+  },
+  "merchants": 4026,
+  "eligible": 3264,
+  "top100_expected_contribution_before_other_costs": 20940990.73471316,
+  "top100_by_segment": {
+    "Hobbies, Arts & Gifts": 32,
+    "Technology & Media": 18,
+    "Fashion & Personal Care": 17,
+    "Home & Garden": 17,
+    "Outdoor & Auto": 16
+  }
+}

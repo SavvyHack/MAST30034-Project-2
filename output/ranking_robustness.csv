@@ -1,0 +1,8 @@
+variant,top 100 unchanged,rank correlation with the main ranking
+the firm loses half a fraudulent sale (λ = 0.5),95.0,0.9511994220687073
+fraud only costs the take rate (λ = 0),84.0,0.6981197145954098
+fraud ignored (rank by revenue),83.0,0.6663966973121851
+fraud rate from the fraud files only (no model),97.0,0.9925347131108012
+fraud rate including the under-flagged first snapshot,99.0,0.9864827638921665
+retain valid purchase outliers,98.0,0.9957171514691767
+past revenue instead of the forecast,100.0,0.999994248999634

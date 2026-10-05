@@ -1,0 +1,103 @@
+{
+  "lookup_rows": {
+    "merchants": 4026,
+    "consumers": 499999,
+    "users": 499999
+  },
+  "lookup_duplicate_keys": {
+    "merchants": 0,
+    "consumers": 0,
+    "users_user_id": 0,
+    "users_consumer_id": 0
+  },
+  "snapshots": {
+    "transactions_20210228_20210827_snapshot": {
+      "rows": 3643266,
+      "first_date": "2021-02-28",
+      "last_date": "2021-08-27"
+    },
+    "transactions_20210828_20220227_snapshot": {
+      "rows": 4508106,
+      "first_date": "2021-08-28",
+      "last_date": "2022-02-27"
+    },
+    "transactions_20220228_20220828_snapshot": {
+      "rows": 6044133,
+      "first_date": "2022-02-28",
+      "last_date": "2022-10-26"
+    }
+  },
+  "raw_rows": 14195505,
+  "unknown_merchants": {
+    "rows": 580830,
+    "abns": 396,
+    "value_share": 0.08587863492605521
+  },
+  "subcent": 1014,
+  "outliers": 63786,
+  "outlier_value_share": 0.019852590924602908,
+  "expected_curated_rows": 13549875,
+  "consumer_fraud": {
+    "rows": 34864,
+    "exact_duplicates": 99,
+    "conflicting_keys": 0,
+    "min_probability": 8.287143531552802,
+    "max_probability": 99.24738020302328,
+    "first_date": "2021-02-28",
+    "last_date": "2022-02-27"
+  },
+  "merchant_fraud": {
+    "rows": 114,
+    "exact_duplicates": 0,
+    "conflicting_keys": 0,
+    "min_probability": 18.21089142894488,
+    "max_probability": 94.1347004808891,
+    "first_date": "2021-03-25",
+    "last_date": "2022-02-27"
+  },
+  "raw_active_users": 24081,
+  "unknown_user_rows": 0,
+  "consumer_flagged_retained": 70114,
+  "consumer_flagged_removed_total": 10234,
+  "curated": {
+    "rows": 13549875,
+    "merchants": 4026,
+    "users": 24081,
+    "sales": 2114232641.3773317,
+    "nulls": {
+      "order_id": 0,
+      "order_datetime": 0,
+      "financial_year": 0,
+      "dollar_value": 0,
+      "user_id": 0,
+      "consumer_id": 0,
+      "gender": 0,
+      "state": 0,
+      "postcode": 0,
+      "merchant_abn": 0,
+      "merchant_name": 0,
+      "category": 0,
+      "revenue_level": 0,
+      "take_rate": 0,
+      "consumer_fraud_probability": 13479761,
+      "merchant_fraud_probability": 13545912,
+      "sa2_code": 2233712,
+      "sa2_name": 2233712,
+      "median_income": 0,
+      "mean_income": 0,
+      "population": 0,
+      "income_imputed": 0,
+      "population_imputed": 0
+    },
+    "bad_values": {
+      "invalid_amount": 0,
+      "postcode_format": 0,
+      "fraud_probability_range": 0,
+      "financial_year": 0,
+      "population_flag": 0
+    },
+    "missing_master_merchants": 0
+  },
+  "retained_row_fingerprints_match": true,
+  "retained_row_duplicate_fingerprints": 0
+}
